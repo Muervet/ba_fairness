@@ -55,11 +55,8 @@ def load_data():
     data['target_binary'] = data['score_text'].apply(create_binary_target)
     data = data.dropna(subset=['target_binary'])
 
-    # Asian and Native American are categorised as 'Other' due to insufficient data
-    data['race'] = data['race'].replace({
-        'Asian': 'Other',
-        'Native American': 'Other'
-    })
+    # Keep only African-American and Caucasian for fairness analysis
+    # Other races will be filtered out
     return data
 
 
@@ -67,12 +64,15 @@ data = load_data()
 
 # FAIRNESS ANALYSIS PAGE
 if st.session_state.show_fairness_analysis:
-    st.header("Fairness Criteria Analysis: African-American vs Other Races")
+    st.header("Fairness Criteria Analysis: African-American vs Caucasian")
 
-    # Create two comparison groups
+    # Create two comparison groups - SADECE African-American ve Caucasian
     data_african_american = data[data['race'] == 'African-American'].copy()
-    other_races = ['Caucasian', 'Hispanic', 'Other']
-    data_other_races = data[data['race'].isin(other_races)].copy()
+    data_caucasian = data[data['race'] == 'Caucasian'].copy()
+
+    # Filter out other races for this analysis
+    data_african_american = data_african_american.copy()
+    data_caucasian = data_caucasian.copy()
 
     # Display sample sizes
     st.sidebar.header("Comparison Groups")
@@ -81,9 +81,9 @@ if st.session_state.show_fairness_analysis:
     - Samples: {len(data_african_american):,}
     - Positive cases: {data_african_american['target_binary'].sum():,} ({data_african_american['target_binary'].mean():.1%})
 
-    **Group 2 - Other Races (Caucasian, Hispanic, Other):**
-    - Samples: {len(data_other_races):,}
-    - Positive cases: {data_other_races['target_binary'].sum():,} ({data_other_races['target_binary'].mean():.1%})
+    **Group 2 - Caucasian:**
+    - Samples: {len(data_caucasian):,}
+    - Positive cases: {data_caucasian['target_binary'].sum():,} ({data_caucasian['target_binary'].mean():.1%})
     """)
 
     # Sidebar for fairness controls
@@ -360,11 +360,11 @@ if st.session_state.show_fairness_analysis:
 
 
     # Train models
-    with st.spinner("Training models for African-American and Other Races..."):
+    with st.spinner("Training models for African-American and Caucasian..."):
         model_aa = train_model_for_group(data_african_american, "African-American")
-        model_other = train_model_for_group(data_other_races, "Other Races")
+        model_caucasian = train_model_for_group(data_caucasian, "Caucasian")
 
-    if model_aa is None or model_other is None:
+    if model_aa is None or model_caucasian is None:
         st.error("Insufficient data for one or both groups.")
         if st.button("Return to Main Analysis"):
             toggle_fairness_analysis()
@@ -372,15 +372,15 @@ if st.session_state.show_fairness_analysis:
     else:
         # Calculate metrics
         metrics_aa = calculate_metrics_for_thresholds(model_aa['y_test'], model_aa['y_scores'])
-        metrics_other = calculate_metrics_for_thresholds(model_other['y_test'], model_other['y_scores'])
+        metrics_caucasian = calculate_metrics_for_thresholds(model_caucasian['y_test'], model_caucasian['y_scores'])
 
         # Calculate calibration
         calibration_aa = calculate_calibration_metrics(model_aa['y_test'], model_aa['y_scores'])
-        calibration_other = calculate_calibration_metrics(model_other['y_test'], model_other['y_scores'])
+        calibration_caucasian = calculate_calibration_metrics(model_caucasian['y_test'], model_caucasian['y_scores'])
 
         # Find optimal threshold
         optimal_thresh, reason = find_optimal_threshold_smart(
-            metrics_aa, metrics_other, calibration_aa, calibration_other,
+            metrics_aa, metrics_caucasian, calibration_aa, calibration_caucasian,
             fairness_criterion, fairness_weight
         )
         optimal_decile = max(1, min(10, int(np.ceil(optimal_thresh * 10))))
@@ -420,7 +420,7 @@ if st.session_state.show_fairness_analysis:
         with tab1:
             # Find metrics at current threshold
             idx_aa = np.argmin(np.abs(metrics_aa['threshold'] - threshold_prob))
-            idx_other = np.argmin(np.abs(metrics_other['threshold'] - threshold_prob))
+            idx_caucasian = np.argmin(np.abs(metrics_caucasian['threshold'] - threshold_prob))
 
             metrics_at_threshold = pd.DataFrame({
                 'Metric': ['Accuracy', 'TPR (Recall)', 'FPR', 'Precision (PPV)', 'Positive Rate', 'F1 Score'],
@@ -432,21 +432,21 @@ if st.session_state.show_fairness_analysis:
                     f"{metrics_aa.iloc[idx_aa]['positive_rate']:.3f}",
                     f"{metrics_aa.iloc[idx_aa]['f1']:.3f}"
                 ],
-                'Other Races': [
-                    f"{metrics_other.iloc[idx_other]['accuracy']:.3f}",
-                    f"{metrics_other.iloc[idx_other]['tpr']:.3f}",
-                    f"{metrics_other.iloc[idx_other]['fpr']:.3f}",
-                    f"{metrics_other.iloc[idx_other]['precision']:.3f}",
-                    f"{metrics_other.iloc[idx_other]['positive_rate']:.3f}",
-                    f"{metrics_other.iloc[idx_other]['f1']:.3f}"
+                'Caucasian': [
+                    f"{metrics_caucasian.iloc[idx_caucasian]['accuracy']:.3f}",
+                    f"{metrics_caucasian.iloc[idx_caucasian]['tpr']:.3f}",
+                    f"{metrics_caucasian.iloc[idx_caucasian]['fpr']:.3f}",
+                    f"{metrics_caucasian.iloc[idx_caucasian]['precision']:.3f}",
+                    f"{metrics_caucasian.iloc[idx_caucasian]['positive_rate']:.3f}",
+                    f"{metrics_caucasian.iloc[idx_caucasian]['f1']:.3f}"
                 ],
                 'Difference': [
-                    f"{abs(metrics_aa.iloc[idx_aa]['accuracy'] - metrics_other.iloc[idx_other]['accuracy']):.3f}",
-                    f"{abs(metrics_aa.iloc[idx_aa]['tpr'] - metrics_other.iloc[idx_other]['tpr']):.3f}",
-                    f"{abs(metrics_aa.iloc[idx_aa]['fpr'] - metrics_other.iloc[idx_other]['fpr']):.3f}",
-                    f"{abs(metrics_aa.iloc[idx_aa]['precision'] - metrics_other.iloc[idx_other]['precision']):.3f}",
-                    f"{abs(metrics_aa.iloc[idx_aa]['positive_rate'] - metrics_other.iloc[idx_other]['positive_rate']):.3f}",
-                    f"{abs(metrics_aa.iloc[idx_aa]['f1'] - metrics_other.iloc[idx_other]['f1']):.3f}"
+                    f"{abs(metrics_aa.iloc[idx_aa]['accuracy'] - metrics_caucasian.iloc[idx_caucasian]['accuracy']):.3f}",
+                    f"{abs(metrics_aa.iloc[idx_aa]['tpr'] - metrics_caucasian.iloc[idx_caucasian]['tpr']):.3f}",
+                    f"{abs(metrics_aa.iloc[idx_aa]['fpr'] - metrics_caucasian.iloc[idx_caucasian]['fpr']):.3f}",
+                    f"{abs(metrics_aa.iloc[idx_aa]['precision'] - metrics_caucasian.iloc[idx_caucasian]['precision']):.3f}",
+                    f"{abs(metrics_aa.iloc[idx_aa]['positive_rate'] - metrics_caucasian.iloc[idx_caucasian]['positive_rate']):.3f}",
+                    f"{abs(metrics_aa.iloc[idx_aa]['f1'] - metrics_caucasian.iloc[idx_caucasian]['f1']):.3f}"
                 ]
             })
 
@@ -475,7 +475,7 @@ if st.session_state.show_fairness_analysis:
             )
 
             color_aa = '#1f77b4'
-            color_other = '#ff7f0e'
+            color_caucasian = '#ff7f0e'
 
             # Accuracy
             fig_metrics.add_trace(
@@ -485,9 +485,9 @@ if st.session_state.show_fairness_analysis:
                 row=1, col=1
             )
             fig_metrics.add_trace(
-                go.Scatter(x=metrics_other['threshold'], y=metrics_other['accuracy'],
-                           mode='lines', name='Other Races',
-                           line=dict(color=color_other, width=2)),
+                go.Scatter(x=metrics_caucasian['threshold'], y=metrics_caucasian['accuracy'],
+                           mode='lines', name='Caucasian',
+                           line=dict(color=color_caucasian, width=2)),
                 row=1, col=1
             )
 
@@ -499,9 +499,9 @@ if st.session_state.show_fairness_analysis:
                 row=1, col=2
             )
             fig_metrics.add_trace(
-                go.Scatter(x=metrics_other['threshold'], y=metrics_other['positive_rate'],
+                go.Scatter(x=metrics_caucasian['threshold'], y=metrics_caucasian['positive_rate'],
                            mode='lines', showlegend=False,
-                           line=dict(color=color_other, width=2)),
+                           line=dict(color=color_caucasian, width=2)),
                 row=1, col=2
             )
 
@@ -513,9 +513,9 @@ if st.session_state.show_fairness_analysis:
                 row=2, col=1
             )
             fig_metrics.add_trace(
-                go.Scatter(x=metrics_other['threshold'], y=metrics_other['tpr'],
+                go.Scatter(x=metrics_caucasian['threshold'], y=metrics_caucasian['tpr'],
                            mode='lines', showlegend=False,
-                           line=dict(color=color_other, width=2)),
+                           line=dict(color=color_caucasian, width=2)),
                 row=2, col=1
             )
 
@@ -527,9 +527,9 @@ if st.session_state.show_fairness_analysis:
                 row=2, col=2
             )
             fig_metrics.add_trace(
-                go.Scatter(x=metrics_other['threshold'], y=metrics_other['fpr'],
+                go.Scatter(x=metrics_caucasian['threshold'], y=metrics_caucasian['fpr'],
                            mode='lines', showlegend=False,
-                           line=dict(color=color_other, width=2)),
+                           line=dict(color=color_caucasian, width=2)),
                 row=2, col=2
             )
 
@@ -578,13 +578,13 @@ if st.session_state.show_fairness_analysis:
             from sklearn.metrics import roc_curve, auc
 
             fpr_aa, tpr_aa, _ = roc_curve(model_aa['y_test'], model_aa['y_scores'])
-            fpr_other, tpr_other, _ = roc_curve(model_other['y_test'], model_other['y_scores'])
+            fpr_caucasian, tpr_caucasian, _ = roc_curve(model_caucasian['y_test'], model_caucasian['y_scores'])
             auc_aa = auc(fpr_aa, tpr_aa)
-            auc_other = auc(fpr_other, tpr_other)
+            auc_caucasian = auc(fpr_caucasian, tpr_caucasian)
 
             # Find points on ROC curve at current threshold
             idx_aa_roc = np.argmin(np.abs(metrics_aa['threshold'] - threshold_prob))
-            idx_other_roc = np.argmin(np.abs(metrics_other['threshold'] - threshold_prob))
+            idx_caucasian_roc = np.argmin(np.abs(metrics_caucasian['threshold'] - threshold_prob))
 
             fig_roc = go.Figure()
 
@@ -594,9 +594,9 @@ if st.session_state.show_fairness_analysis:
                            line=dict(color=color_aa, width=3))
             )
             fig_roc.add_trace(
-                go.Scatter(x=fpr_other, y=tpr_other, mode='lines',
-                           name=f'Other Races (AUC={auc_other:.3f})',
-                           line=dict(color=color_other, width=3))
+                go.Scatter(x=fpr_caucasian, y=tpr_caucasian, mode='lines',
+                           name=f'Caucasian (AUC={auc_caucasian:.3f})',
+                           line=dict(color=color_caucasian, width=3))
             )
 
             # Add current operating point for AA
@@ -609,14 +609,14 @@ if st.session_state.show_fairness_analysis:
                            hovertemplate=f"AA: FPR={metrics_aa.iloc[idx_aa_roc]['fpr']:.3f}, TPR={metrics_aa.iloc[idx_aa_roc]['tpr']:.3f}<br>Threshold: {threshold_prob:.3f}")
             )
 
-            # Add current operating point for Other
+            # Add current operating point for Caucasian
             fig_roc.add_trace(
-                go.Scatter(x=[metrics_other.iloc[idx_other_roc]['fpr']],
-                           y=[metrics_other.iloc[idx_other_roc]['tpr']],
+                go.Scatter(x=[metrics_caucasian.iloc[idx_caucasian_roc]['fpr']],
+                           y=[metrics_caucasian.iloc[idx_caucasian_roc]['tpr']],
                            mode='markers',
-                           name=f'Other at Decile {threshold}',
-                           marker=dict(size=15, color=color_other, symbol='square'),
-                           hovertemplate=f"Other: FPR={metrics_other.iloc[idx_other_roc]['fpr']:.3f}, TPR={metrics_other.iloc[idx_other_roc]['tpr']:.3f}<br>Threshold: {threshold_prob:.3f}")
+                           name=f'Caucasian at Decile {threshold}',
+                           marker=dict(size=15, color=color_caucasian, symbol='square'),
+                           hovertemplate=f"Caucasian: FPR={metrics_caucasian.iloc[idx_caucasian_roc]['fpr']:.3f}, TPR={metrics_caucasian.iloc[idx_caucasian_roc]['tpr']:.3f}<br>Threshold: {threshold_prob:.3f}")
             )
 
             fig_roc.add_trace(
@@ -638,7 +638,7 @@ if st.session_state.show_fairness_analysis:
             # Calibration plots
             fig_calibration = make_subplots(
                 rows=1, cols=2,
-                subplot_titles=("African-American", "Other Races"),
+                subplot_titles=("African-American", "Caucasian"),
                 horizontal_spacing=0.15
             )
 
@@ -659,12 +659,12 @@ if st.session_state.show_fairness_analysis:
                 row=1, col=1
             )
 
-            # Other Races calibration
+            # Caucasian calibration
             fig_calibration.add_trace(
-                go.Scatter(x=calibration_other['avg_score'], y=calibration_other['actual_pos_rate'],
-                           mode='markers+lines', name='Other Races',
-                           marker=dict(size=10, color=color_other),
-                           line=dict(color=color_other, width=2),
+                go.Scatter(x=calibration_caucasian['avg_score'], y=calibration_caucasian['actual_pos_rate'],
+                           mode='markers+lines', name='Caucasian',
+                           marker=dict(size=10, color=color_caucasian),
+                           line=dict(color=color_caucasian, width=2),
                            showlegend=False),
                 row=1, col=2
             )
@@ -694,10 +694,11 @@ if st.session_state.show_fairness_analysis:
         st.subheader(f"Fairness Analysis Summary")
 
         # Calculate fairness metrics at current threshold
-        pos_rate_diff = abs(metrics_aa.iloc[idx_aa]['positive_rate'] - metrics_other.iloc[idx_other]['positive_rate'])
-        tpr_diff = abs(metrics_aa.iloc[idx_aa]['tpr'] - metrics_other.iloc[idx_other]['tpr'])
-        fpr_diff = abs(metrics_aa.iloc[idx_aa]['fpr'] - metrics_other.iloc[idx_other]['fpr'])
-        precision_diff = abs(metrics_aa.iloc[idx_aa]['precision'] - metrics_other.iloc[idx_other]['precision'])
+        pos_rate_diff = abs(
+            metrics_aa.iloc[idx_aa]['positive_rate'] - metrics_caucasian.iloc[idx_caucasian]['positive_rate'])
+        tpr_diff = abs(metrics_aa.iloc[idx_aa]['tpr'] - metrics_caucasian.iloc[idx_caucasian]['tpr'])
+        fpr_diff = abs(metrics_aa.iloc[idx_aa]['fpr'] - metrics_caucasian.iloc[idx_caucasian]['fpr'])
+        precision_diff = abs(metrics_aa.iloc[idx_aa]['precision'] - metrics_caucasian.iloc[idx_caucasian]['precision'])
 
         fairness_metrics = pd.DataFrame({
             'Criterion': ['Independence', 'Separation', 'Sufficiency'],
@@ -728,8 +729,8 @@ if st.session_state.show_fairness_analysis:
             **Practical Implications:**
             - Current threshold jails approximately:
               - **African-American**: {metrics_aa.iloc[idx_aa]['positive_rate']:.1%}
-              - **Other Races**: {metrics_other.iloc[idx_other]['positive_rate']:.1%}
-            - Accuracy trade-off: {abs(metrics_aa.iloc[idx_aa]['accuracy'] - metrics_other.iloc[idx_other]['accuracy']):.3f} difference
+              - **Caucasian**: {metrics_caucasian.iloc[idx_caucasian]['positive_rate']:.1%}
+            - Accuracy trade-off: {abs(metrics_aa.iloc[idx_aa]['accuracy'] - metrics_caucasian.iloc[idx_caucasian]['accuracy']):.3f} difference
             """)
 
         # Button to go back
@@ -739,10 +740,8 @@ if st.session_state.show_fairness_analysis:
 
 # MAIN ANALYSIS PAGE (YOUR ORIGINAL CODE - KEEP AS IS)
 else:
-    # Your original main analysis code here (exactly as you had it)
     # Select race group
     race_options = ['All'] + sorted(data['race'].unique().tolist())
-    #selected_race = st.selectbox("Select Race Group for Visualization:", race_options, key="main_select")
     selected_race = st.segmented_control("Select Race Group:", race_options,
                                          selection_mode="single", default='All')
     # Filter data
